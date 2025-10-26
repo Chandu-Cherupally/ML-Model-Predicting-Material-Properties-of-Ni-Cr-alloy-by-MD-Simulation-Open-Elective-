@@ -1,0 +1,31 @@
+# NiCr Alloy Equilibration
+
+units metal
+atom_style atomic
+dimension 3
+boundary p p p
+
+read_data ../outputs/minimized.data
+
+# Potential
+pair_style eam/alloy
+pair_coeff * * ../potentials/NiCr.eam.alloy Ni Cr
+
+# Settings
+neighbor 2.0 bin
+neigh_modify every 10 delay 0 check yes
+
+# Temperature and pressure
+velocity all create 300.0 4928459 rot yes dist gaussian
+timestep 0.001
+
+# NPT ensemble
+fix 1 all npt temp 300 300 0.1 iso 0.0 0.0 1.0
+
+# Output
+thermo 100
+thermo_style custom step temp press vol density pe ke etotal lx ly lz
+
+run 10000
+write_data ../outputs/equilibrated.data
+write_restart ../outputs/equilibrated.restart

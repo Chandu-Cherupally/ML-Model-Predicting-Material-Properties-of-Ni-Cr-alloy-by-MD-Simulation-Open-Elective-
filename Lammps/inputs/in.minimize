@@ -1,0 +1,27 @@
+# NiCr Alloy Energy Minimization
+
+units metal
+atom_style atomic
+dimension 3
+boundary p p p
+
+# Create NiCr alloy lattice
+lattice fcc 3.52
+region box block 0 10 0 10 0 10
+create_box 2 box
+create_atoms 1 box basis 1 1 basis 2 2 basis 3 3 basis 4 4
+
+# Set composition (80% Ni, 20% Cr)
+set type 1 type/fraction 2 0.2 23984
+
+# Potential file
+pair_style eam/alloy
+pair_coeff * * ../potentials/NiCr.eam.alloy Ni Cr
+
+# Minimization
+thermo 10
+thermo_style custom step pe press pxx pyy pzz lx ly lz
+min_style cg
+minimize 1e-10 1e-10 1000 1000
+
+write_data ../outputs/minimized.data

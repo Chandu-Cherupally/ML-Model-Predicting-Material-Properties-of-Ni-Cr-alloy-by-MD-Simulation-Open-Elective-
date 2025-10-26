@@ -1,0 +1,33 @@
+LAMMPS (23 Jun 2022 - Update 1)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread. (src/comm.cpp:98)
+  using 1 OpenMP thread(s) per MPI task
+# NiCr Alloy Tensile Test - MEAM Potential
+# Composition: Ni80Cr20
+
+units metal
+atom_style atomic
+dimension 3
+boundary p p p
+
+# Create lattice
+lattice fcc 3.52
+Lattice spacing in x,y,z = 3.52 3.52 3.52
+region box block 0 10 0 10 0 10
+create_box 2 box
+Created orthogonal box = (0 0 0) to (35.2 35.2 35.2)
+  1 by 1 by 1 MPI processor grid
+create_atoms 1 box
+Created 4000 atoms
+  using lattice units in orthogonal box = (0 0 0) to (35.2 35.2 35.2)
+  create_atoms CPU = 0.001 seconds
+
+# Set composition
+set type 1 type/fraction 2 0.19999999999999996 12345
+Setting atom values ...
+  793 settings made for type/fraction
+
+# MEAM Potential
+pair_style meam
+pair_coeff * * ../potentials/library.meam Ni Cr ../potentials/CrNi.meam Ni Cr
+ERROR: No MEAM parameter file in pair coefficients (src/MEAM/pair_meam.cpp:237)
+Last command: pair_coeff * * ../potentials/library.meam Ni Cr ../potentials/CrNi.meam Ni Cr

@@ -1,0 +1,43 @@
+# NiCr Alloy Uniaxial Tensile Test
+
+units metal
+atom_style atomic
+dimension 3
+boundary p p p
+
+read_restart ../outputs/equilibrated.restart
+
+# Potential
+pair_style eam/alloy
+pair_coeff * * ../potentials/NiCr.eam.alloy Ni Cr
+
+# Settings
+neighbor 2.0 bin
+neigh_modify every 10 delay 0 check yes
+timestep 0.001
+
+# Deformation
+variable strain_rate equal 1e-9
+variable dt equal 0.001
+variable nsteps equal 1000
+
+# Fixes
+fix 1 all nvt temp 300 300 0.1
+fix 2 all deform 1 x erate ${strain_rate} units box remap x
+
+# Stress calculation
+compute peratom all stress/atom NULL
+compute p all reduce sum c_peratom[1] c_peratom[2] c_peratom[3]
+
+# Output
+thermo 100
+thermo_style custom step lx ly lz press pxx pyy pzz pe ke
+
+# Dump for visualization
+dump 1 all atom 100 ../outputs/tensile.dump
+dump_modify 1 element Ni Cr
+
+# Stress-strain output
+fix stress_out all print 100 "$(step) $(lx) $(pxx)" file ../outputs/stress_strain.out screen no
+
+run ${nsteps}
