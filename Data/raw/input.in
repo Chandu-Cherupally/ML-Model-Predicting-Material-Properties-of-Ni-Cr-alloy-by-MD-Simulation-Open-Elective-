@@ -1,0 +1,188 @@
+# NiCr Alloy Mechanical Properties Dataset Generation
+# This script will run multiple simulations with different compositions
+
+units metal
+atom_style atomic
+dimension 3
+boundary p p p
+
+# Simulation parameters
+variable size equal 10
+variable temp equal 300
+variable strain_rate equal 1e9
+variable lattice_param equal 3.52
+
+# Define compositions to test (Ni fraction)
+variable comp1 equal 0.7   # Ni70Cr30
+variable comp2 equal 0.8   # Ni80Cr20  
+variable comp3 equal 0.9   # Ni90Cr10
+
+# Output directory
+variable output_dir string ../outputs
+
+# Loop over different compositions
+label composition_loop
+variable comp index ${comp1} ${comp2} ${comp3}
+
+# Current composition
+variable Ni_frac equal ${comp}
+variable Cr_frac equal 1-${Ni_frac}
+variable Ni_percent equal v_Ni_frac*100
+variable Cr_percent equal v_Cr_frac*100
+
+print "=========================================="
+print "Running simulation for Ni${Ni_percent}Cr${Cr_percent}"
+print "=========================================="
+
+# Create lattice
+lattice fcc ${lattice_param}
+region box block 0 ${size} 0 ${size} 0 ${size}
+create_box 2 box
+create_atoms 1 box
+
+# Set composition - randomly assign Cr atoms
+set type 1 type/fraction 2 ${Cr_frac} 12345
+
+# MEAM Potential
+pair_style meam
+pair_coeff * * ../potentials/library.meam Ni Cr ../potentials/CrNi.meam Ni Cr
+
+# Neighbor settings
+neighbor 2.0 bin
+neigh_modify every 10 delay 0 check yes
+
+# --- ENERGY MINIMIZATION ---
+print "Step 1: Energy minimization"
+min_style cg
+minimize 1e-10 1e-10 1000 1000
+
+# --- EQUILIBRATION ---
+print "Step 2: Equilibration at ${temp}K"
+timestep 0.001
+velocity all create ${temp} 54321 rot yes dist gaussian
+fix 1 all npt temp ${temp} ${temp} 0.1 iso 0.0 0.0 1.0
+
+thermo 100
+thermo_style custom step temp press vol density pe ke etotal lx ly lz
+
+run 2000
+unfix 1
+
+# Save equilibrated state
+write_data ${output_dir}/equilibrated_comp${comp}.data
+
+# --- TENSILE TEST ---
+print "Step 3: Uniaxial tensile test"
+
+# Reset time and setup tensile deformation
+reset_timestep 0
+fix 1 all nvt temp ${temp} ${temp} 0.1
+fix 2 all deform 1 x erate ${strain_rate} units box remap x
+
+# Stress calculation
+compute peratom all stress/atom NULL
+compute pxx all reduce sum c_peratom[1]
+compute pyy all reduce sum c_peratom[2]  
+compute pzz all reduce sum c_peratom[3]
+compute press all pressure NULL
+
+# Output for stress-strain curve
+variable strain equal (lx-lx0)/lx0
+variable stress equal -pxx/vol*1e-4  # Convert to GPa
+
+# Initial box dimensions for strain calculation
+variable lx0 equal lx
+variable ly0 equal ly
+variable lz0 equal lz
+variable vol0 equal vol
+
+# Output settings
+thermo 50
+thermo_style custom step v_strain v_stress press pxx pyy pzz pe ke lx ly lz
+
+# Dump trajectory for visualization (optional)
+#dump 1 all atom 500 ${output_dir}/tensile_comp${comp}.dump
+#dump_modify 1 element Ni Cr
+
+# Output stress-strain data to file
+fix stress_out all print 50 "${step} ${lx} ${pxx} ${vol} ${strain} ${stress}" file ${output_dir}/stress_strain_comp${comp}.out title "# Step Length Pxx Volume Strain Stress(GPa)"
+
+print "Starting tensile deformation..."
+run 3000
+
+# --- ANALYSIS ---
+print "Step 4: Extracting mechanical properties"
+
+# Calculate Young's modulus from linear region
+variable youngs_modulus equal (v_stress[50]-v_stress[10])/(v_strain[50]-v_strain[10])
+
+# Find yield strength (0.2% offset)
+variable yield_strain equal 0.002
+variable yield_stress equal 0
+variable i equal 1
+
+label yield_search
+variable current_strain equal v_strain[${i}]
+variable current_stress equal v_stress[${i}]
+variable elastic_stress equal v_youngs_modulus*(v_current_strain-v_yield_strain)
+
+if "${current_stress} >= ${elastic_stress}" then &
+  "variable yield_stress equal ${current_stress}" &
+  "variable yield_strain_actual equal ${current_strain}" &
+  "jump generate_dataset.in yield_found"
+
+variable i equal ${i}+1
+if "${i} < 100" then "jump generate_dataset.in yield_search"
+
+label yield_found
+
+# Find ultimate tensile strength
+variable uts equal 0
+variable j equal 1
+
+label uts_search  
+variable test_stress equal v_stress[${j}]
+if "${test_stress} > ${uts}" then "variable uts equal ${test_stress}"
+variable j equal ${j}+1
+if "${j} < 100" then "jump generate_dataset.in uts_search"
+
+# Output mechanical properties
+print "=========================================="
+print "MECHANICAL PROPERTIES for Ni${Ni_percent}Cr${Cr_percent}"
+print "=========================================="
+print "Young's Modulus: ${youngs_modulus} GPa"
+print "Yield Strength (0.2% offset): ${yield_stress} GPa at strain ${yield_strain_actual}"
+print "Ultimate Tensile Strength: ${uts} GPa"
+print "Test Temperature: ${temp} K"
+print "Strain Rate: ${strain_rate} /s"
+
+# Write properties to summary file
+fix prop_out all print 1 "${Ni_frac} ${temp} ${strain_rate} ${youngs_modulus} ${yield_stress} ${uts}" file ${output_dir}/mechanical_properties_summary.out append title "# Composition Temperature StrainRate YoungsModulus YieldStrength UTS"
+
+# Clean up for next composition
+unfix 1
+unfix 2
+unfix stress_out
+unfix prop_out
+uncompute peratom
+uncompute pxx
+uncompute pyy
+uncompute pzz
+uncompute press
+
+# Clear system for next composition
+clear
+
+next comp
+jump generate_dataset.in composition_loop
+
+# All compositions completed
+print "=========================================="
+print "DATASET GENERATION COMPLETED"
+print "=========================================="
+print "Generated data for all compositions"
+print "Check ${output_dir}/ for results"
+
+# Final cleanup
+unfix all
+uncompute all
